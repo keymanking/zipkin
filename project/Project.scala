@@ -133,7 +133,7 @@ object Zipkin extends Build {
       query, queryCore, queryService, web, zipkinAggregate,
       collectorScribe, collectorCore, collectorService,
       sampler, receiverScribe, receiverKafka, collector,
-      cassandra, anormDB, kafka, redis, hbase
+      cassandra, anormDB, kafka, redis, hbase, elasticsearch
     )
 
   lazy val tracegen = Project(
@@ -217,6 +217,16 @@ object Zipkin extends Build {
       zk("group")
     )
   )
+
+  lazy val elasticsearch = Project(
+    id = "zipkin-elasticsearch",
+    base = file("zipkin-elasticsearch"),
+    settings = defaultSettings
+  ).settings(
+    libraryDependencies ++= Seq(
+      "com.sksamuel.elastic4s" %% "elastic4s" % "1.4.13"
+    )
+  ).dependsOn(common,collectorCore)
 
   lazy val collectorCore = Project(
     id = "zipkin-collector-core",
@@ -415,7 +425,7 @@ object Zipkin extends Build {
       base =>
         (base / "config" +++ base / "src" / "test" / "resources").get
     }
-  ).dependsOn(collectorCore, collectorScribe, receiverKafka, cassandra, kafka, redis, anormDB, hbase)
+  ).dependsOn(collectorCore, collectorScribe, receiverKafka, cassandra, kafka, redis, anormDB, hbase, elasticsearch)
 
   lazy val zipkinAggregate =
     Project(
