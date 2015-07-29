@@ -249,31 +249,32 @@ case class CassandraIndex(
 
     val batch = annotationsIndex.batch
 
-    span.annotations.filter { a =>
-      // skip core annotations since that query can be done by service name/span name anyway
-      !Constants.CoreAnnotations.contains(a.value)
-    } groupBy {
-      _.value
-    } foreach { m: (String, List[Annotation]) =>
-      val a = m._2.min
-      a.host match {
-        case Some(endpoint) => {
-          WRITE_REQUEST_COUNTER.incr()
-          val col = Column[Long, Long](a.timestamp, span.traceId).ttl(dataTimeToLive)
-          batch.insert(ByteBuffer.wrap(encode(endpoint.serviceName.toLowerCase, a.value.toLowerCase).getBytes), col)
-        }
-        case None => // Nothin
-      }
-    }
+//    span.annotations.filter { a =>
+//      // skip core annotations since that query can be done by service name/span name anyway
+//      !Constants.CoreAnnotations.contains(a.value)
+//    } groupBy {
+//      _.value
+//    } foreach { m: (String, List[Annotation]) =>
+//      val a = m._2.min
+//      a.host match {
+//        case Some(endpoint) => {
+//          WRITE_REQUEST_COUNTER.incr()
+//          val col = Column[Long, Long](a.timestamp, span.traceId).ttl(dataTimeToLive)
+//          batch.insert(ByteBuffer.wrap(encode(endpoint.serviceName.toLowerCase, a.value.toLowerCase).getBytes), col)
+//        }
+//        case None => // Nothin
+//      }
+//    }
 
-    span.binaryAnnotations foreach { ba =>
+    val binaryAnnotationKeyList = Set("query", "qid","error_code")
+    span.binaryAnnotations.filter(ba => binaryAnnotationKeyList.contains(ba.key.toString)) foreach { ba =>
       ba.host match {
         case Some(endpoint) => {
           WRITE_REQUEST_COUNTER.incr(2)
           val key = encode(endpoint.serviceName, ba.key).getBytes
           val col = Column[Long, Long](timestamp, span.traceId).ttl(dataTimeToLive)
           batch.insert(ByteBuffer.wrap(key ++ INDEX_DELIMITER.getBytes ++ Util.getArrayFromBuffer(ba.value)), col)
-          batch.insert(ByteBuffer.wrap(key), col)
+          //batch.insert(ByteBuffer.wrap(key), col)
         }
         case None =>
       }
