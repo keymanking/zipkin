@@ -18,10 +18,11 @@ package com.twitter.zipkin.web
 import com.twitter.app.App
 import com.twitter.conversions.time._
 import com.twitter.finagle.http.HttpMuxer
+import com.twitter.finagle.http.filter.Cors
 import com.twitter.finagle.stats.{DefaultStatsReceiver, StatsReceiver}
 import com.twitter.finagle.{Http, Service, Thrift}
 import com.twitter.server.TwitterServer
-import com.twitter.util.{Await, Future}
+import com.twitter.util.{Duration, Await, Future}
 import com.twitter.zipkin.common.json.ZipkinJson
 import com.twitter.zipkin.common.mustache.ZipkinMustache
 import com.twitter.zipkin.thriftscala.ZipkinQuery
@@ -98,8 +99,23 @@ trait ZipkinWebFactory { self: App =>
       val handlePath = path.takeWhile { t => !(t.startsWith(":") || t.startsWith("?:")) }
       val suffix = if (p.endsWith("/") || p.contains(":")) "/" else ""
 
+      val policy = Cors.Policy(
+        allowsOrigin = {
+          case origin => Some(origin)
+          case _ => None
+        },
+        allowsMethods = { method  => Some(method :: "TRAP" :: Nil) },
+        allowsHeaders = { headers => Some(headers) },
+        exposedHeaders = "Icey" :: Nil,
+        supportsCredentials = true,
+        maxAge = Some(Duration.Top)
+      )
+
+      val corsFilter = new Cors.HttpFilter(policy)
+
       m.withHandler(handlePath.mkString("/") + suffix,
         nettyToFinagle andThen
+        corsFilter andThen
         collectStats(handlePath.foldLeft(stats) { case (s, p) => s.scope(p) }) andThen
         renderPage andThen
         catchExceptions andThen
