@@ -86,6 +86,11 @@ trait ZipkinWebFactory { self: App =>
       ("/api/trace/:id", handleGetTrace(queryClient)),
       ("/api/fanout_trace/:id", handleGetFanoutTrace(queryClient)),
       ("/api/ui_trace/:id", handleUITrace(queryClient)),
+      ("/orgs/ps/query", handleQuery(queryClient)),
+      ("/orgs/ps/services", handleServices(queryClient)),
+      ("/orgs/ps/spans", requireServiceName andThen handleSpans(queryClient)),
+      ("/orgs/ps/trace/:id", handleGetTrace(queryClient)),
+      ("/orgs/ps/fanout_trace/:id", handleGetFanoutTrace(queryClient)),
       ("/api/is_pinned/:id", handleIsPinned(queryClient)),
       ("/api/pin/:id/:state", handleTogglePin(queryClient, webPinTtl()))
     ).foldLeft(new HttpMuxer) { case (m , (p, handler)) =>
