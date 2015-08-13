@@ -1,23 +1,22 @@
 package com.twitter.zipkin.web
 
-import com.twitter.common.stats.ApproximateHistogram
-import com.twitter.conversions.time._
+import java.io.{File, FileInputStream, InputStream}
+
 import com.twitter.finagle.http.{Request, Response}
 import com.twitter.finagle.stats.StatsReceiver
 import com.twitter.finagle.tracing.SpanId
 import com.twitter.finagle.{Filter, Service, SimpleFilter}
 import com.twitter.util.{Duration, Future}
-import com.twitter.zipkin.{Constants => ZConstants}
 import com.twitter.zipkin.common.json._
 import com.twitter.zipkin.common.mustache.ZipkinMustache
 import com.twitter.zipkin.conversions.thrift._
-import com.twitter.zipkin.query.{SpanTimestamp, TraceCombo, TraceSummary, QueryRequest}
+import com.twitter.zipkin.query.{QueryRequest, SpanTimestamp, TraceCombo, TraceSummary}
 import com.twitter.zipkin.thriftscala.{Adjust, ZipkinQuery}
-import java.io.{File, FileInputStream, InputStream}
-import java.text.SimpleDateFormat
+import com.twitter.zipkin.{Constants => ZConstants}
 import org.apache.commons.io.IOUtils
 import org.jboss.netty.buffer.ChannelBuffers
 import org.jboss.netty.handler.codec.http.{HttpRequest, HttpResponse}
+
 import scala.annotation.tailrec
 
 class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
@@ -368,6 +367,9 @@ class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
   private[this] def pathTraceId(id: Option[String]): Option[Long] =
     id flatMap { SpanId.fromString(_).map(_.toLong) }
 
+  private[this] def pathFanoutId(id: Option[String]): Option[String] =
+    id
+
   trait NotFoundService extends Service[Request, Renderer] {
     def process(req: Request): Option[Future[Renderer]]
 
@@ -376,6 +378,16 @@ class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
   }
 
   protected def renderTrace(combo: TraceCombo): Renderer = {
+    val data = genTraceData(combo)
+    MustacheRenderer("v2/trace.mustache", data)
+  }
+
+  protected def renderUITrace(combo: TraceCombo): Renderer = {
+    val data = genTraceData(combo)
+    JsonRenderer(data)
+  }
+
+  private def genTraceData(combo: TraceCombo): Map[String, Object] = {
     val trace = combo.trace
     val traceStartTimestamp = trace.getStartAndEndTimestamp.map(_.start).getOrElse(0L)
     val childMap = trace.getIdToChildrenMap
@@ -386,48 +398,48 @@ class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
       span <- trace.getSpanTree(rootSpan, childMap).toList
     } yield {
 
-      val start = span.firstAnnotation.map(_.timestamp).getOrElse(traceStartTimestamp)
+        val start = span.firstAnnotation.map(_.timestamp).getOrElse(traceStartTimestamp)
 
-      val depth = combo.spanDepths.get.getOrElse(span.id, 1)
-      val width = span.duration.map { d => (d.toDouble / trace.duration.toDouble) * 100 }.getOrElse(0.0)
+        val depth = combo.spanDepths.get.getOrElse(span.id, 1)
+        val width = span.duration.map { d => (d.toDouble / trace.duration.toDouble) * 100 }.getOrElse(0.0)
 
-      val binaryAnnotations = span.binaryAnnotations.map {
-        case ann if ZConstants.CoreAddress.contains(ann.key) =>
-          val key = ZConstants.CoreAnnotationNames.get(ann.key).get
-          val value = ann.host.map { e => s"${e.getHostAddress}:${e.getUnsignedPort}" }.get
-          JsonBinaryAnnotation(key, value, ann.annotationType, ann.host.map(JsonEndpoint.wrap))
-        case ann => JsonBinaryAnnotation.wrap(ann)
+        val binaryAnnotations = span.binaryAnnotations.map {
+          case ann if ZConstants.CoreAddress.contains(ann.key) =>
+            val key = ZConstants.CoreAnnotationNames.get(ann.key).get
+            val value = ann.host.map { e => s"${e.getHostAddress}:${e.getUnsignedPort}" }.get
+            JsonBinaryAnnotation(key, value, ann.annotationType, ann.host.map(JsonEndpoint.wrap))
+          case ann => JsonBinaryAnnotation.wrap(ann)
+        }
+
+        Map(
+          "spanId" -> SpanId(span.id).toString,
+          "parentId" -> span.parentId.filter(spanMap.get(_).isDefined).map(SpanId(_).toString),
+          "spanName" -> span.name,
+          "serviceNames" -> span.serviceNames.mkString(","),
+          "serviceName" -> span.serviceName,
+          "duration" -> span.duration,
+          "durationStr" -> span.duration.map { d => durationStr(d * 1000) },
+          "left" -> ((start - traceStartTimestamp).toFloat / trace.duration.toFloat) * 100,
+          "width" -> (if (width < 0.1) 0.1 else width),
+          "depth" -> (depth + 1) * 5,
+          "depthClass" -> (depth - 1) % 6,
+          "children" -> childMap.get(span.id).map(_.map(s => SpanId(s.id).toString).mkString(",")),
+          "annotations" -> span.annotations.sortBy(_.timestamp).map { a =>
+            Map(
+              "isCore" -> ZConstants.CoreAnnotations.contains(a.value),
+              "left" -> span.duration.map { d => ((a.timestamp - start).toFloat / d.toFloat) * 100 },
+              "endpoint" -> a.host.map { e => s"${e.getHostAddress}:${e.getUnsignedPort}" },
+              "value" -> annoToString(a.value),
+              "timestamp" -> a.timestamp,
+              "relativeTime" -> durationStr((a.timestamp - traceStartTimestamp) * 1000),
+              "serviceName" -> a.host.map(_.serviceName),
+              "duration" -> a.duration,
+              "width" -> a.duration.getOrElse(8)
+            )
+          },
+          "binaryAnnotations" -> binaryAnnotations
+        )
       }
-
-      Map(
-        "spanId" -> SpanId(span.id).toString,
-        "parentId" -> span.parentId.filter(spanMap.get(_).isDefined).map(SpanId(_).toString),
-        "spanName" -> span.name,
-        "serviceNames" -> span.serviceNames.mkString(","),
-        "serviceName" -> span.serviceName,
-        "duration" -> span.duration,
-        "durationStr" -> span.duration.map { d => durationStr(d * 1000) },
-        "left" -> ((start - traceStartTimestamp).toFloat / trace.duration.toFloat) * 100,
-        "width" -> (if (width < 0.1) 0.1 else width),
-        "depth" -> (depth + 1) * 5,
-        "depthClass" -> (depth - 1) % 6,
-        "children" -> childMap.get(span.id).map(_.map(s => SpanId(s.id).toString).mkString(",")),
-        "annotations" -> span.annotations.sortBy(_.timestamp).map { a =>
-          Map(
-            "isCore" -> ZConstants.CoreAnnotations.contains(a.value),
-            "left" -> span.duration.map { d => ((a.timestamp - start).toFloat / d.toFloat) * 100 },
-            "endpoint" -> a.host.map { e => s"${e.getHostAddress}:${e.getUnsignedPort}" },
-            "value" -> annoToString(a.value),
-            "timestamp" -> a.timestamp,
-            "relativeTime" -> durationStr((a.timestamp - traceStartTimestamp) * 1000),
-            "serviceName" -> a.host.map(_.serviceName),
-            "duration" -> a.duration,
-            "width" -> a.duration.getOrElse(8)
-          )
-        },
-        "binaryAnnotations" -> binaryAnnotations
-      )
-    }
 
     val traceDuration = trace.duration * 1000
     val serviceDurations = combo.traceSummary map { summary =>
@@ -449,7 +461,7 @@ class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
       "timeMarkers" -> timeMarkers,
       "spans" -> spans)
 
-    MustacheRenderer("v2/trace.mustache", data)
+    data
   }
 
   def handleTraces(client: ZipkinQuery[Future]): Service[Request, Renderer] =
@@ -462,6 +474,17 @@ class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
       } getOrElse NotFound
     }
 
+  def handleUITrace(client: ZipkinQuery[Future]): Service[Request, Renderer] =
+    Service.mk[Request, Renderer] { req =>
+      pathTraceId(req.path.split("/").lastOption) map { id =>
+        client.getTraceCombosByIds(Seq(id), getAdjusters(req)) flatMap {
+          case Seq(combo) => Future.value(renderUITrace(combo.toTraceCombo))
+          case _ => NotFound
+        }
+      } getOrElse NotFound
+    }
+
+
   def handleGetTrace(client: ZipkinQuery[Future]): Service[Request, Renderer] =
     new NotFoundService {
       def process(req: Request): Option[Future[Renderer]] =
@@ -469,6 +492,16 @@ class Handlers(jsonGenerator: ZipkinJson, mustacheGenerator: ZipkinMustache) {
           client.getTraceCombosByIds(Seq(id), getAdjusters(req)) map { ts =>
             val combo = ts.head.toTraceCombo
             JsonRenderer(if (req.path.startsWith("/api/trace")) combo.trace else combo)
+          }
+        }
+    }
+
+  def handleGetFanoutTrace(client: ZipkinQuery[Future]): Service[Request, Renderer] =
+    new NotFoundService {
+      def process(req: Request): Option[Future[Renderer]] =
+        pathFanoutId(req.path.split("/").lastOption) map { id =>
+          client.getFanoutTracesByIds(Seq(id), getAdjusters(req)) map { ts =>
+            JsonRenderer(ts.head.toTrace)
           }
         }
     }

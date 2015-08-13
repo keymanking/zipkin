@@ -84,6 +84,8 @@ trait ZipkinWebFactory { self: App =>
       ("/api/dependencies/?:startTime/?:endTime", handleDependencies(queryClient)),
       ("/api/get/:id", handleGetTrace(queryClient)),
       ("/api/trace/:id", handleGetTrace(queryClient)),
+      ("/api/fanout_trace/:id", handleGetFanoutTrace(queryClient)),
+      ("/api/ui_trace/:id", handleUITrace(queryClient)),
       ("/api/is_pinned/:id", handleIsPinned(queryClient)),
       ("/api/pin/:id/:state", handleTogglePin(queryClient, webPinTtl()))
     ).foldLeft(new HttpMuxer) { case (m , (p, handler)) =>

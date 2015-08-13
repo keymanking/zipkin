@@ -32,6 +32,7 @@ case class IndexBuilder(
   serviceSpanNameIndexCf: String = "ServiceSpanNameIndex",
   annotationsIndexCf: String     = "AnnotationsIndex",
   durationIndexCf: String        = "DurationIndex",
+  binaryAnnotationKeyList: Seq[String] = Seq(),
   dataTimeToLive: Duration = 3.days,
   numBuckets: Int = 10,
   writeConsistency: WriteConsistency = WriteConsistency.One,
@@ -139,6 +140,7 @@ case class IndexBuilder(
       .consistency(writeConsistency)
       .consistency(readConsistency)
 
+
     CassandraIndex(
       keyspace,
       serviceNames,
@@ -147,6 +149,7 @@ case class IndexBuilder(
       serviceSpanNameIndex,
       annotationsIndex,
       durationIndex,
+      binaryAnnotationKeyList,
       dataTimeToLive)
   }
 }

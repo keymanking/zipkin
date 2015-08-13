@@ -161,6 +161,8 @@ service ZipkinQuery {
      */
     list<Trace> getTracesByIds(1: list<i64> trace_ids, 2: list<Adjust> adjust) throws (1: QueryException qe);
 
+    list<Trace> getFanoutTracesByIds(1: list<string> ids, 2: list<Adjust> adjust) throws (1: QueryException qe);
+
     /**
      * Get the trace timelines associated with the given trace ids.
      * This is a convenience method for users that just want to know

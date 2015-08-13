@@ -307,6 +307,19 @@ class QueryService(
     }
   }
 
+  def getFanoutTracesByIds(ids: Seq[String], adjust: Seq[thriftscala.Adjust]): Future[Seq[thriftscala.Trace]] = {
+    call("getFanoutTracesByIds") {
+      val adjusters = getAdjusters(adjust)
+
+      storage.getFanoutSpansByIds(ids).map { traces =>
+        traces.map { spans =>
+          val trace = Trace(spans)
+          adjusters.foldLeft(trace)((t, adjuster) => adjuster.adjust(t)).toThrift
+        }
+      }
+    }
+  }
+
   def getTraceTimelinesByIds(traceIds: Seq[Long],
                              adjust: Seq[thriftscala.Adjust]): Future[Seq[thriftscala.TraceTimeline]] = {
     log.debug("getTraceTimelinesByIds. " + traceIds + " adjust " + adjust)

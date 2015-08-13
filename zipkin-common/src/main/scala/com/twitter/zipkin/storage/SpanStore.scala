@@ -15,12 +15,14 @@
  */
 package com.twitter.zipkin.storage
 
+import java.nio.ByteBuffer
+
 import com.twitter.conversions.time._
-import com.twitter.finagle.{Filter => FFilter, Service}
+import com.twitter.finagle.{Filter => FFilter}
 import com.twitter.util.{Closable, CloseAwaitably, Duration, Future, Time}
 import com.twitter.zipkin.Constants
 import com.twitter.zipkin.common.Span
-import java.nio.ByteBuffer
+
 import scala.collection.mutable
 
 trait SpanStore extends WriteSpanStore with ReadSpanStore
@@ -84,6 +86,8 @@ trait ReadSpanStore {
   def getSpansByTraceIds(traceIds: Seq[Long]): Future[Seq[Seq[Span]]]
   def getSpansByTraceId(traceId: Long): Future[Seq[Span]]
 
+  def getFanoutSpansByIds(ids: Seq[String]): Future[Seq[Seq[Span]]]
+  def getFanoutSpansById(id: String): Future[Seq[Span]]
   /**
    * Get the trace ids for this particular service and if provided, span name.
    * Only return maximum of limit trace ids from before the endTs.
@@ -167,6 +171,16 @@ class InMemorySpanStore extends SpanStore {
 
   def getSpansByTraceId(traceId: Long): Future[Seq[Span]] = call {
     spans.filter { _.traceId == traceId }.toList
+  }
+
+  def getFanoutSpansByIds(ids: Seq[String]): Future[Seq[Seq[Span]]] = call {
+    ids flatMap { id =>
+      Some(spans.filter { _.traceId == id }.toList).filter { _.length > 0 }
+    }
+  }
+
+  def getFanoutSpansById(id: String): Future[Seq[Span]] = call {
+    spans.filter { _.traceId == id }.toList
   }
 
   def getTraceIdsByName(

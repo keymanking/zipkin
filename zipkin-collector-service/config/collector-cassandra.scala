@@ -20,8 +20,8 @@ import com.twitter.zipkin.storage.Store
 
 val keyspaceBuilder = cassandra.Keyspace.static(nodes = Set("localhost"))
 val cassandraBuilder = Store.Builder(
-  cassandra.StorageBuilder(keyspaceBuilder),
-  cassandra.IndexBuilder(keyspaceBuilder),
+  cassandra.StorageBuilder(keyspaceBuilder, fanoutSpanList = Seq("bs")),
+  cassandra.IndexBuilder(keyspaceBuilder, binaryAnnotationKeyList = Seq("query", "qid", "error_code")),
   cassandra.AggregatesBuilder(keyspaceBuilder)
 )
 

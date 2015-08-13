@@ -28,6 +28,8 @@ import scala.collection.JavaConverters._
 case class CassandraStorage(
   keyspace: Keyspace,
   traces: ColumnFamily[Long, String, thriftscala.Span],
+  fanoutSpans: ColumnFamily[String, String, thriftscala.Span],
+  fanoutSpanList: Seq[String],
   readBatchSize: Int,
   dataTimeToLive: Duration
 ) extends Storage {
@@ -38,6 +40,7 @@ case class CassandraStorage(
 
   // storing the span in the traces cf
   private val CASSANDRA_STORE_SPAN = Stats.getCounter("cassandra_storespan")
+  private val CASSANDRA_STORE_FANOUT_SPAN = Stats.getCounter("cassandra_store_fanout_span")
 
   // read the trace
   private val CASSANDRA_GET_TRACE = Stats.getCounter("cassandra_gettrace")
@@ -58,9 +61,18 @@ case class CassandraStorage(
   def storeSpan(span: Span): Future[Unit] = {
     CASSANDRA_STORE_SPAN.incr
     WRITE_REQUEST_COUNTER.incr()
-    val traceKey = span.traceId
-    val traceCol = Column[String, thriftscala.Span](createSpanColumnName(span), span.toThrift).ttl(dataTimeToLive)
-    traces.insert(traceKey, traceCol).unit
+
+    if (fanoutSpanList.contains(span.name.split("_").head)) {
+      CASSANDRA_STORE_FANOUT_SPAN.incr()
+      val fanoutSpansKey = span.traceId + ":" + span.parentId
+      val fanoutSpansCol = Column[String, thriftscala.Span](createSpanColumnName(span), span.toThrift).ttl(dataTimeToLive)
+      fanoutSpans.insert(fanoutSpansKey, fanoutSpansCol).unit
+
+    } else {
+      val traceKey = span.traceId
+      val traceCol = Column[String, thriftscala.Span](createSpanColumnName(span), span.toThrift).ttl(dataTimeToLive)
+      traces.insert(traceKey, traceCol).unit
+    }
   }
 
   def setTimeToLive(traceId: Long, ttl: Duration): Future[Unit] = {
@@ -158,6 +170,42 @@ case class CassandraStorage(
     }.map {
       _.flatten
     }
+  }
+
+  def getFanoutSpansById(id: String): Future[Seq[Span]] = {
+    getFanoutSpansByIds(Seq(id)).map {
+      _.head
+    }
+  }
+
+  def getFanoutSpansByIds(ids: Seq[String]): Future[Seq[Seq[Span]]] = {
+    Future.collect {
+      ids.grouped(readBatchSize).toSeq.map { ids =>
+        fanoutSpans.multigetRows(ids.toSet.asJava, None, None, Order.Normal, TRACE_MAX_COLS).map { rowSet =>
+          ids.flatMap { id =>
+            val spans = rowSet.asScala(id).asScala.map {
+              case (colName, col) => col.value.toSpan
+            }
+
+            spans.toSeq match {
+              case Nil => {
+                None
+              }
+              case s if s.length > TRACE_MAX_COLS => {
+                CASSANDRA_GET_TRACE_TOO_BIG.incr()
+                None
+              }
+              case s => {
+                Some(s)
+              }
+            }
+          }
+        }
+      }
+    }.map {
+      _.flatten
+    }
+
   }
 
   def getDataTimeToLive: Int = dataTimeToLive.inSeconds

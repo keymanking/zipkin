@@ -27,6 +27,8 @@ import com.twitter.zipkin.storage.Storage
 case class StorageBuilder(
   keyspaceBuilder: KeyspaceBuilder,
   columnFamily: String = "Traces",
+  fanoutSpansCf: String = "FanoutSpans",
+  fanoutSpanList: Seq[String] = Seq(),
   writeConsistency: WriteConsistency = WriteConsistency.One,
   readConsistency: ReadConsistency = ReadConsistency.One,
   dataTimeToLive: Duration = 7.days,
@@ -47,6 +49,10 @@ case class StorageBuilder(
       .consistency(writeConsistency)
       .consistency(readConsistency)
 
-    CassandraStorage(keyspace, traces, readBatchSize, dataTimeToLive)
+    val fanoutSpans = keyspace.columnFamily(fanoutSpansCf, Utf8Codec, Utf8Codec, spanCodec)
+      .consistency(writeConsistency)
+      .consistency(readConsistency)
+
+    CassandraStorage(keyspace, traces, fanoutSpans, fanoutSpanList, readBatchSize, dataTimeToLive)
   }
 }

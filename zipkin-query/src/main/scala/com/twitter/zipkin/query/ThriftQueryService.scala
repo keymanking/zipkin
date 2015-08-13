@@ -247,6 +247,11 @@ class ThriftQueryService(
       spanStore.getSpansByTraceIds(traceIds) map { adjustedTraces(_, adjust).map(_.toThrift) }
     }
 
+  def getFanoutTracesByIds(ids: Seq[String], adjust: Seq[thriftscala.Adjust]): Future[Seq[thriftscala.Trace]] =
+    handle("getFanoutTracesByIds") {
+      spanStore.getFanoutSpansByIds(ids) map { adjustedTraces(_, adjust).map(_.toThrift) }
+    }
+
   def getTraceTimelinesByIds(traceIds: Seq[Long], adjust: Seq[thriftscala.Adjust]): Future[Seq[thriftscala.TraceTimeline]] =
     handle("getTraceTimelinesByIds") {
       FTrace.recordBinary("numIds", traceIds.length)
@@ -333,4 +338,5 @@ class ThriftQueryService(
       val time = Time.fromMicroseconds(timeStamp)
       realtimeStore.getServiceNamesToTraceIds(time, serverServiceName, rpcName)
     }
+
 }

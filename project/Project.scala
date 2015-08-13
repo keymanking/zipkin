@@ -133,7 +133,7 @@ object Zipkin extends Build {
       query, queryCore, queryService, web, zipkinAggregate,
       collectorScribe, collectorCore, collectorService,
       sampler, receiverScribe, receiverKafka, collector,
-      cassandra, anormDB, kafka, redis, hbase, elasticsearch
+      cassandra, kafka, elasticsearch
     )
 
   lazy val tracegen = Project(
@@ -256,6 +256,7 @@ object Zipkin extends Build {
   ).settings(
     libraryDependencies ++= Seq(
       "commons-codec" % "commons-codec" % "1.6",
+      "com.sksamuel.elastic4s" %% "elastic4s" % "1.4.13",
       finagle("serversets"),
       util("logging"),
       util("app"),
@@ -341,7 +342,7 @@ object Zipkin extends Build {
       base =>
         (base / "config" +++ base / "src" / "test" / "resources").get
     }
-  ).dependsOn(queryCore, cassandra, redis, anormDB, hbase)
+  ).dependsOn(queryCore, cassandra)
 
   lazy val collectorScribe =
     Project(
@@ -425,7 +426,7 @@ object Zipkin extends Build {
       base =>
         (base / "config" +++ base / "src" / "test" / "resources").get
     }
-  ).dependsOn(collectorCore, collectorScribe, receiverKafka, cassandra, kafka, redis, anormDB, hbase, elasticsearch)
+  ).dependsOn(collectorCore, collectorScribe, receiverKafka, cassandra, kafka, elasticsearch)
 
   lazy val zipkinAggregate =
     Project(

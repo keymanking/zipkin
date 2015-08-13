@@ -56,6 +56,8 @@ trait Storage {
    */
   def getSpansByTraceIds(traceIds: Seq[Long]): Future[Seq[Seq[Span]]]
   def getSpansByTraceId(traceId: Long): Future[Seq[Span]]
+  def getFanoutSpansByIds(ids: Seq[String]): Future[Seq[Seq[Span]]]
+  def getFanoutSpansById(id: String): Future[Seq[Span]]
   /**
    * How long do we store the data before we delete it? In seconds.
    */

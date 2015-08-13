@@ -15,6 +15,9 @@ package com.twitter.zipkin.storage.cassandra
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+import java.nio.charset.Charset
+
 import com.twitter.cassie._
 import com.twitter.conversions.time._
 import com.twitter.ostrich.stats.Stats
@@ -28,6 +31,7 @@ import java.util.{Map => JMap}
 import scala.collection.JavaConverters._
 import scala.collection.Set
 
+
 /**
  * An index for the spans and traces using Cassandra with the Cassie client.
  */
@@ -39,6 +43,7 @@ case class CassandraIndex(
   serviceSpanNameIndex: ColumnFamily[String, Long, Long],
   annotationsIndex: ColumnFamily[ByteBuffer, Long, Long],
   durationIndex: ColumnFamily[Long, Long, String],
+  binaryAnnotationKeyList: Seq[String],
   dataTimeToLive: Duration = 3.days
 ) extends Index {
 
@@ -266,7 +271,6 @@ case class CassandraIndex(
 //      }
 //    }
 
-    val binaryAnnotationKeyList = Set("query", "qid","error_code")
     span.binaryAnnotations.filter(ba => binaryAnnotationKeyList.contains(ba.key.toString)) foreach { ba =>
       ba.host match {
         case Some(endpoint) => {
@@ -274,7 +278,6 @@ case class CassandraIndex(
           val key = encode(endpoint.serviceName, ba.key).getBytes
           val col = Column[Long, Long](timestamp, span.traceId).ttl(dataTimeToLive)
           batch.insert(ByteBuffer.wrap(key ++ INDEX_DELIMITER.getBytes ++ Util.getArrayFromBuffer(ba.value)), col)
-          //batch.insert(ByteBuffer.wrap(key), col)
         }
         case None =>
       }

@@ -32,6 +32,7 @@ import scala.collection.JavaConverters._
 
 case class ZipkinColumnFamilyNames(
   traces: String = "Traces",
+  fanoutSpans: String = "FanoutSpans",
   serviceNames: String = "ServiceNames",
   spanNames: String = "SpanNames",
   serviceNameIndex: String = "ServiceNameIndex",
@@ -101,6 +102,12 @@ class CassieSpanStore(
   private type BatchTraces = BatchMutationBuilder[Long, String, Span]
   private[this] val Traces = keyspace
     .columnFamily(cfs.traces, LongCodec, Utf8Codec, spanCodec)
+    .consistency(writeConsistency)
+    .consistency(readConsistency)
+
+  private type BatchFanoutSpans = BatchMutationBuilder[String, String, Span]
+  private[this] val FanoutSpans = keyspace
+    .columnFamily(cfs.fanoutSpans, Utf8Codec, Utf8Codec, spanCodec)
     .consistency(writeConsistency)
     .consistency(readConsistency)
 
@@ -273,6 +280,29 @@ class CassieSpanStore(
     Future.collect(results.toSeq).map(_.flatten)
   }
 
+  private[this] def getFanoutSpansByIds(ids: Seq[String], count: Int): Future[Seq[Seq[Span]]] = {
+
+    val results = ids.grouped(readBatchSize) map { idBatch =>
+      FanoutSpans.multigetRows(idBatch.toSet.asJava, None, None, Order.Normal, count) map { rowSet =>
+        val rows = rowSet.asScala
+        idBatch flatMap { id =>
+          rows(id).asScala match {
+            case cols if cols.isEmpty =>
+              None
+
+            case cols if cols.size > maxTraceCols =>
+              QueryGetSpansByTraceIdsTooBigCounter.incr()
+              None
+
+            case cols =>
+              Some(cols.toSeq map { case (_, col) => col.value.toSpan })
+          }
+        }
+      }
+    }
+    Future.collect(results.toSeq).map(_.flatten)
+  }
+
   /**
    * API Implementation
    */
@@ -284,6 +314,7 @@ class CassieSpanStore(
     SpansStoredCounter.incr(spans.size)
 
     val traces = Traces.batch()
+    val fanoutSpans = FanoutSpans.batch()
     val serviceNames = ServiceNames.batch()
     val spanNames = SpanNames.batch()
     val serviceNameIdx = ServiceNameIndex.batch()
@@ -305,6 +336,7 @@ class CassieSpanStore(
 
     Future.collect(Seq(
       traces,
+      fanoutSpans,
       serviceNames,
       spanNames,
       serviceNameIdx,
@@ -351,6 +383,13 @@ class CassieSpanStore(
   def getSpansByTraceIds(traceIds: Seq[Long]): Future[Seq[Seq[Span]]] = {
     QueryGetSpansByTraceIdsStat.add(traceIds.size)
     getSpansByTraceIds(traceIds, maxTraceCols)
+  }
+
+  def getFanoutSpansById(id: String): Future[Seq[Span]] =
+    getFanoutSpansByIds(Seq(id)).map(_.head)
+
+  def getFanoutSpansByIds(ids: Seq[String]): Future[Seq[Seq[Span]]] = {
+    getFanoutSpansByIds(ids, maxTraceCols)
   }
 
   def getAllServiceNames: Future[Set[String]] = {
@@ -412,4 +451,6 @@ class CassieSpanStore(
       }
     }
   }
+
+
 }
