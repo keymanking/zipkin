@@ -64,7 +64,7 @@ case class CassandraStorage(
 
     if (fanoutSpanList.contains(span.name.split("_").head)) {
       CASSANDRA_STORE_FANOUT_SPAN.incr()
-      val fanoutSpansKey = span.traceId + ":" + span.parentId
+      val fanoutSpansKey = span.traceId + ":" + span.parentId.getOrElse(0)
       val fanoutSpansCol = Column[String, thriftscala.Span](createSpanColumnName(span), span.toThrift).ttl(dataTimeToLive)
       fanoutSpans.insert(fanoutSpansKey, fanoutSpansCol).unit
 
